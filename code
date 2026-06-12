@@ -1,1 +1,136 @@
+#include <LiquidCrystal.h>
+#include <DHT.h>
 
+DHT dht(2, DHT11);
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
+
+#define BUTTON_PIN 3
+#define MAX_READINGS 30
+
+float tempReadings[MAX_READINGS];
+float humReadings[MAX_READINGS];
+float heatReadings[MAX_READINGS];
+int readIndex = 0;
+int totalReadings = 0;
+
+int screen = 0; // 0=live, 1=temp stats, 2=hum stats, 3=heat index stats
+bool lastButtonState = HIGH;
+
+unsigned long lastReadTime = 0;
+
+void setup() {
+  lcd.begin(16, 2);
+  dht.begin();
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+}
+
+void loop() {
+  // Button handling
+  bool buttonState = digitalRead(BUTTON_PIN);
+  if (buttonState == LOW && lastButtonState == HIGH) {
+    screen = (screen + 1) % 4;
+    lcd.clear();
+    delay(50); // debounce
+  }
+  lastButtonState = buttonState;
+
+  // Read sensor every 2 seconds
+  if (millis() - lastReadTime >= 2000) {
+    lastReadTime = millis();
+
+    float temp = dht.readTemperature(true);
+    float hum = dht.readHumidity();
+    float heat = dht.computeHeatIndex(temp, hum);
+
+    if (!isnan(temp) && !isnan(hum)) {
+      tempReadings[readIndex] = temp;
+      humReadings[readIndex] = hum;
+      heatReadings[readIndex] = heat;
+      readIndex = (readIndex + 1) % MAX_READINGS;
+      if (totalReadings < MAX_READINGS) totalReadings++;
+    }
+
+    updateDisplay(temp, hum, heat);
+  }
+}
+
+void updateDisplay(float temp, float hum, float heat) {
+  if (screen == 0) {
+    // Live screen
+    lcd.setCursor(0, 0);
+    lcd.print("Temp: ");
+    lcd.print(temp, 1);
+    lcd.print((char)223);
+    lcd.print("F   ");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Feels:");
+    lcd.print(heat, 1);
+    lcd.print((char)223);
+    lcd.print("F   ");
+
+  } else {
+    // Calculate stats
+    float tSum = 0, tMin = tempReadings[0], tMax = tempReadings[0];
+    float hSum = 0, hMin = humReadings[0], hMax = humReadings[0];
+    float hiSum = 0, hiMin = heatReadings[0], hiMax = heatReadings[0];
+
+    for (int i = 0; i < totalReadings; i++) {
+      tSum += tempReadings[i];
+      tMin = min(tMin, tempReadings[i]);
+      tMax = max(tMax, tempReadings[i]);
+      hSum += humReadings[i];
+      hMin = min(hMin, humReadings[i]);
+      hMax = max(hMax, humReadings[i]);
+      hiSum += heatReadings[i];
+      hiMin = min(hiMin, heatReadings[i]);
+      hiMax = max(hiMax, heatReadings[i]);
+    }
+
+    float tAvg = tSum / totalReadings;
+    float hAvg = hSum / totalReadings;
+    float hiAvg = hiSum / totalReadings;
+
+    if (screen == 1) {
+      // Temp stats
+      lcd.setCursor(0, 0);
+      lcd.print("T Avg:");
+      lcd.print(tAvg, 1);
+      lcd.print((char)223);
+      lcd.print("F  ");
+
+      lcd.setCursor(0, 1);
+      lcd.print("Hi:");
+      lcd.print(tMax, 1);
+      lcd.print(" Lo:");
+      lcd.print(tMin, 1);
+
+    } else if (screen == 2) {
+      // Humidity stats
+      lcd.setCursor(0, 0);
+      lcd.print("H Avg:");
+      lcd.print(hAvg, 1);
+      lcd.print("%   ");
+
+      lcd.setCursor(0, 1);
+      lcd.print("Hi:");
+      lcd.print(hMax, 1);
+      lcd.print(" Lo:");
+      lcd.print(hMin, 1);
+
+    } else {
+      // Heat index stats
+      lcd.setCursor(0, 0);
+      lcd.print("HI Avg:");
+      lcd.print(hiAvg, 1);
+      lcd.print((char)223);
+      lcd.print("F ");
+
+      lcd.setCursor(0, 1);
+      lcd.print("Hi:");
+      lcd.print(hiMax, 1);
+      lcd.print(" Lo:");
+      lcd.print(hiMin, 1);
+    }
+  }
+}
